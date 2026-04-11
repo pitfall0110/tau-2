@@ -1,0 +1,28 @@
+/workspace/
+
+# Local environment
+.env
+.venv/
+.python-version
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Runtime logs
+validator.log
+
+# OS/editor cruft
+.DS_Store
