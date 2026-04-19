@@ -4,22 +4,22 @@
  */
 
 import {
-        type AssistantMessage,
-        type Context,
-        EventStream,
-        streamSimple,
-        type ToolResultMessage,
-        validateToolArguments,
+	type AssistantMessage,
+	type Context,
+	EventStream,
+	streamSimple,
+	type ToolResultMessage,
+	validateToolArguments,
 } from "@mariozechner/pi-ai";
 import type {
-        AgentContext,
-        AgentEvent,
-        AgentLoopConfig,
-        AgentMessage,
-        AgentTool,
-        AgentToolCall,
-        AgentToolResult,
-        StreamFn,
+	AgentContext,
+	AgentEvent,
+	AgentLoopConfig,
+	AgentMessage,
+	AgentTool,
+	AgentToolCall,
+	AgentToolResult,
+	StreamFn,
 } from "./types.js";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
@@ -29,28 +29,28 @@ export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
  * The prompt is added to the context and events are emitted for it.
  */
 export function agentLoop(
-        prompts: AgentMessage[],
-        context: AgentContext,
-        config: AgentLoopConfig,
-        signal?: AbortSignal,
-        streamFn?: StreamFn,
+	prompts: AgentMessage[],
+	context: AgentContext,
+	config: AgentLoopConfig,
+	signal?: AbortSignal,
+	streamFn?: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
-        const stream = createAgentStream();
+	const stream = createAgentStream();
 
-        void runAgentLoop(
-                prompts,
-                context,
-                config,
-                async (event) => {
-                        stream.push(event);
-                },
-                signal,
-                streamFn,
-        ).then((messages) => {
-                stream.end(messages);
-        });
+	void runAgentLoop(
+		prompts,
+		context,
+		config,
+		async (event) => {
+			stream.push(event);
+		},
+		signal,
+		streamFn,
+	).then((messages) => {
+		stream.end(messages);
+	});
 
-        return stream;
+	return stream;
 }
 
 /**
@@ -62,381 +62,855 @@ export function agentLoop(
  * This cannot be validated here since `convertToLlm` is only called once per turn.
  */
 export function agentLoopContinue(
-        context: AgentContext,
-        config: AgentLoopConfig,
-        signal?: AbortSignal,
-        streamFn?: StreamFn,
+	context: AgentContext,
+	config: AgentLoopConfig,
+	signal?: AbortSignal,
+	streamFn?: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
-        if (context.messages.length === 0) {
-                throw new Error("Cannot continue: no messages in context");
-        }
+	if (context.messages.length === 0) {
+		throw new Error("Cannot continue: no messages in context");
+	}
 
-        if (context.messages[context.messages.length - 1].role === "assistant") {
-                throw new Error("Cannot continue from message role: assistant");
-        }
+	if (context.messages[context.messages.length - 1].role === "assistant") {
+		throw new Error("Cannot continue from message role: assistant");
+	}
 
-        const stream = createAgentStream();
+	const stream = createAgentStream();
 
-        void runAgentLoopContinue(
-                context,
-                config,
-                async (event) => {
-                        stream.push(event);
-                },
-                signal,
-                streamFn,
-        ).then((messages) => {
-                stream.end(messages);
-        });
+	void runAgentLoopContinue(
+		context,
+		config,
+		async (event) => {
+			stream.push(event);
+		},
+		signal,
+		streamFn,
+	).then((messages) => {
+		stream.end(messages);
+	});
 
-        return stream;
+	return stream;
 }
 
 export async function runAgentLoop(
-        prompts: AgentMessage[],
-        context: AgentContext,
-        config: AgentLoopConfig,
-        emit: AgentEventSink,
-        signal?: AbortSignal,
-        streamFn?: StreamFn,
+	prompts: AgentMessage[],
+	context: AgentContext,
+	config: AgentLoopConfig,
+	emit: AgentEventSink,
+	signal?: AbortSignal,
+	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
-        const newMessages: AgentMessage[] = [...prompts];
-        const currentContext: AgentContext = {
-                ...context,
-                messages: [...context.messages, ...prompts],
-        };
+	const newMessages: AgentMessage[] = [...prompts];
+	const currentContext: AgentContext = {
+		...context,
+		messages: [...context.messages, ...prompts],
+	};
 
-        await emit({ type: "agent_start" });
-        await emit({ type: "turn_start" });
-        for (const prompt of prompts) {
-                await emit({ type: "message_start", message: prompt });
-                await emit({ type: "message_end", message: prompt });
-        }
+	await emit({ type: "agent_start" });
+	await emit({ type: "turn_start" });
+	for (const prompt of prompts) {
+		await emit({ type: "message_start", message: prompt });
+		await emit({ type: "message_end", message: prompt });
+	}
 
-        await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
-        return newMessages;
+	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+	return newMessages;
 }
 
 export async function runAgentLoopContinue(
-        context: AgentContext,
-        config: AgentLoopConfig,
-        emit: AgentEventSink,
-        signal?: AbortSignal,
-        streamFn?: StreamFn,
+	context: AgentContext,
+	config: AgentLoopConfig,
+	emit: AgentEventSink,
+	signal?: AbortSignal,
+	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
-        if (context.messages.length === 0) {
-                throw new Error("Cannot continue: no messages in context");
-        }
+	if (context.messages.length === 0) {
+		throw new Error("Cannot continue: no messages in context");
+	}
 
-        if (context.messages[context.messages.length - 1].role === "assistant") {
-                throw new Error("Cannot continue from message role: assistant");
-        }
+	if (context.messages[context.messages.length - 1].role === "assistant") {
+		throw new Error("Cannot continue from message role: assistant");
+	}
 
-        const newMessages: AgentMessage[] = [];
-        const currentContext: AgentContext = { ...context };
+	const newMessages: AgentMessage[] = [];
+	const currentContext: AgentContext = { ...context };
 
-        await emit({ type: "agent_start" });
-        await emit({ type: "turn_start" });
+	await emit({ type: "agent_start" });
+	await emit({ type: "turn_start" });
 
-        await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
-        return newMessages;
+	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+	return newMessages;
 }
 
 function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
-        return new EventStream<AgentEvent, AgentMessage[]>(
-                (event: AgentEvent) => event.type === "agent_end",
-                (event: AgentEvent) => (event.type === "agent_end" ? event.messages : []),
-        );
+	return new EventStream<AgentEvent, AgentMessage[]>(
+		(event: AgentEvent) => event.type === "agent_end",
+		(event: AgentEvent) => (event.type === "agent_end" ? event.messages : []),
+	);
 }
 
 /**
  * Main loop logic shared by agentLoop and agentLoopContinue.
- * Includes tau/sn66 v20 guardrails — synthesis of onel0ck v15-v17 proven
- * strategies + SOTA techniques from Augment Code, Refact.ai research.
  */
 async function runLoop(
-        currentContext: AgentContext,
-        newMessages: AgentMessage[],
-        config: AgentLoopConfig,
-        signal: AbortSignal | undefined,
-        emit: AgentEventSink,
-        streamFn?: StreamFn,
+	currentContext: AgentContext,
+	newMessages: AgentMessage[],
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
+	streamFn?: StreamFn,
 ): Promise<void> {
-        let firstTurn = true;
-        // Check for steering messages at start (user may have typed while waiting)
-        let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
+	let firstTurn = true;
+	// Check for steering messages at start (user may have typed while waiting)
+	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 
-        // ---- tau/sn66 guardrail state ----
+	let upstreamRetries = 0;
+	const UPSTREAM_RETRY_LIMIT = 100;
 
-        // G1: Provider error retry (from onel0ck v15.1, proven in local smoke tests)
-        // Gemini Flash via OpenRouter proxy intermittently returns finish_reason=error
-        // mid-stream, leaving partial assistant message with no tool calls.
-        let providerErrorRetries = 0;
-        const MAX_PROVIDER_ERROR_RETRIES = 3;
+	const editFailMap = new Map<string, number>();
+	const failNotified = new Set<string>();
+	const EDIT_FAIL_CEILING = 2;
+	const priorFailedAnchor = new Map<string, string>();
 
-        // G2: Consecutive edit-error detector (from onel0ck v15.2)
-        // When same file accumulates 2+ "Could not find oldText" errors, force model
-        // to move to a different file or re-read before retrying.
-        const editErrorsByFile = new Map<string, number>();
-        const stuckFilesAlerted = new Set<string>();
-        const EDIT_ERROR_THRESHOLD_PER_FILE = 2;
+	let explorationCount = 0;
+	let totalExplorationSteps = 0;
+	let hasProducedEdit = false;
+	let emptyTurnRetries = 0;
+	const EMPTY_TURN_MAX = 2;
 
-        // G3: Exploration budget (from onel0ck v16)
-        // Force edit after N reads without any edit. Also retry on token-length
-        // hit or premature stop with no edits.
-        let readsWithoutEdit = 0;
-        let hasEditedAnyFile = false;
-        let noToolCallRetries = 0;
-        const MAX_NO_TOOL_RETRIES = 2;
-        const MAX_READS_BEFORE_EDIT = 3;
+	const loopStart = Date.now();
+	let earlyNudgeSent = false;
+	let urgentNudgeSent = false;
+	let finalNudgeSent = false;
+	const pathsAlreadyRead = new Set<string>();
+	const pathReadCounts = new Map<string, number>();
+	let lastRereadNudgeAt = 0;
+	const editedPaths = new Set<string>();
+	const pathEditCounts = new Map<string, number>();
+	let consecutiveEditsOnSameFile = 0;
+	let lastEditedFile = "";
 
-        // G4: Wall-clock time pressure (from onel0ck v17, refined thresholds)
-        // Validator kills at min(cursor_time*2, 300s). We assume worst case ~120s.
-        const loopStartTime = Date.now();
-        let timeWarningInjected = false;
-        const TIME_WARNING_MS = 80_000;  // 80s — inject urgency
-        // G5: Hard exit before validator kills container (from onel0ck v17)
-        // Validator bug: only collects diff if container is still running.
-        const HARD_EXIT_MS = 170_000;    // 170s — exit gracefully
+	let workPhase: "search" | "absorb" | "apply" = "search";
+	let foundFiles: string[] = [];
+	let absorbedFiles = new Set<string>();
 
-        // G6: Selective stale-text warning (IMPROVEMENT over onel0ck)
-        // King's version fires on EVERY successful edit, wasting tokens.
-        // Ours only warns when the model seems about to re-edit a just-modified file.
-        const recentlyEditedFiles = new Map<string, number>(); // path → turn number
-        let turnNumber = 0;
+	// Parse expected files from system prompt discovery sections
+	const parseExpectedFiles = (text: string): string[] => {
+		const files: string[] = [];
+		const seen = new Set<string>();
+		const sectionPatterns = [
+			/FILES EXPLICITLY NAMED IN THE TASK[^\n]*\n((?:[-*]\s+\S[^\n]*\n)+)/,
+			/LIKELY RELEVANT FILES[^\n]*\n((?:[-*]\s+\S[^\n]*\n)+)/,
+			/Pre-identified target files[^\n]*\n((?:[-*]\s+\S[^\n]*\n)+)/,
+		];
+		for (const re of sectionPatterns) {
+			const match = text.match(re);
+			if (!match) continue;
+			const lineRe = /^[-*]\s+(\S[^(]*?)(?:\s+\(|\s*$)/gm;
+			let m: RegExpExecArray | null;
+			while ((m = lineRe.exec(match[1])) !== null) {
+				const file = m[1].trim();
+				if (file && !seen.has(file)) { seen.add(file); files.push(file); }
+			}
+		}
+		return files;
+	};
 
-        // G7: Anti-narration guardrail (NEW — from Augment Code "threatening" technique)
-        // If model writes long text-only responses after first edit, inject urgency.
-        let consecutiveTextOnlyTurns = 0;
-        const MAX_TEXT_ONLY_TURNS_AFTER_EDIT = 2;
+	// Extract expected files from system prompt or initial messages
+	const systemPromptText = (currentContext as any).systemPrompt || "";
+	let expectedFiles: string[] = parseExpectedFiles(systemPromptText);
+	if (expectedFiles.length === 0) {
+		for (const msg of currentContext.messages) {
+			if (!("content" in msg) || !Array.isArray(msg.content)) continue;
+			for (const block of msg.content as any[]) {
+				if (block?.type === "text" && typeof block.text === "string") {
+					const parsed = parseExpectedFiles(block.text);
+					if (parsed.length > 0) { expectedFiles = parsed; break; }
+				}
+			}
+			if (expectedFiles.length > 0) break;
+		}
+	}
+	if (expectedFiles.length > 0) {
+		foundFiles = [...expectedFiles];
+		workPhase = "absorb";
+	}
+	let coverageRetries = 0;
+	const MAX_COVERAGE_RETRIES = 2;
 
-        // ---- End guardrail state ----
+	const missingExpectedFiles = (): string[] => {
+		if (expectedFiles.length === 0) return [];
+		const missing: string[] = [];
+		for (const f of expectedFiles) {
+			const norm = f.replace(/^\.\//, "");
+			let touched = false;
+			for (const e of editedPaths) {
+				const en = e.replace(/^\.\//, "");
+				if (en === norm || en.endsWith("/" + norm) || norm.endsWith("/" + en)) { touched = true; break; }
+			}
+			if (!touched) missing.push(f);
+		}
+		return missing;
+	};
+	const EARLY_NUDGE_MS = 10_000;
+	const URGENT_NUDGE_MS = 22_000;
+	const LATE_NUDGE_MS = 55_000;
+	const GRACEFUL_EXIT_MS = 170_000;
+	let multiFileHintSent = false;
+	let reviewPassDone = false;
 
-        // Outer loop: continues when queued follow-up messages arrive after agent would stop
-        while (true) {
-                let hasMoreToolCalls = true;
-                turnNumber++;
+	/** Successful `edit` or `write` mutates disk — both must advance scoring-related loop state (was edit-only). */
+	const recordSuccessfulFileMutation = async (targetPath: string): Promise<void> => {
+		editFailMap.set(targetPath, 0);
+		priorFailedAnchor.delete(targetPath);
+		const firstMutation = !hasProducedEdit;
+		hasProducedEdit = true;
+		explorationCount = 0;
+		const normTarget = targetPath.replace(/^\.\//, "");
+		editedPaths.add(targetPath);
+		editedPaths.add(normTarget);
+		editedPaths.add("./" + normTarget);
+		pathEditCounts.set(normTarget, (pathEditCounts.get(normTarget) ?? 0) + 1);
+		if (normTarget === lastEditedFile) {
+			consecutiveEditsOnSameFile++;
+		} else {
+			consecutiveEditsOnSameFile = 1;
+			lastEditedFile = normTarget;
+		}
+		const uneditedTargets = foundFiles.filter((f: string) => {
+			const nf = f.replace(/^\.\//, "");
+			return !editedPaths.has(f) && !editedPaths.has(nf) && !editedPaths.has("./" + nf);
+		});
+		let breadthHint = "";
+		if (consecutiveEditsOnSameFile >= 3 && uneditedTargets.length > 0) {
+			breadthHint = ` STOP editing \`${normTarget}\` — you have made ${consecutiveEditsOnSameFile} consecutive edits on it. ${uneditedTargets.length} file(s) still need ANY edit: ${uneditedTargets.slice(0, 6).map((f: string) => `\`${f}\``).join(", ")}. Move to the next file NOW. One edit per file scores far higher than many edits on one file.`;
+		} else if (uneditedTargets.length > 0) {
+			breadthHint = ` ${uneditedTargets.length} target file(s) still need edits: ${uneditedTargets.slice(0, 6).map((f: string) => `\`${f}\``).join(", ")}. Move to the next unedited file — breadth across files scores higher than depth in one file.`;
+		}
+		let siblingHint = "";
+		try {
+			const { spawnSync: _sibSpawn } = await import("node:child_process");
+			const dir = normTarget.includes("/") ? normTarget.substring(0, normTarget.lastIndexOf("/")) : ".";
+			const ext = normTarget.includes(".") ? normTarget.substring(normTarget.lastIndexOf(".")) : "";
+			const lsResult = _sibSpawn("ls", [dir], { cwd: process.cwd(), timeout: 1000, encoding: "utf-8" });
+			if (lsResult.status === 0 && lsResult.stdout) {
+				const siblings = lsResult.stdout
+					.trim()
+					.split("\n")
+					.map((f: string) => (dir === "." ? f : dir + "/" + f))
+					.filter((f: string) => !editedPaths.has(f) && !editedPaths.has(f.replace(/^\.\//, "")));
+				const related = siblings
+					.filter((f: string) => {
+						const name = f.split("/").pop() || "";
+						return (
+							name.includes(".test.") ||
+							name.includes(".spec.") ||
+							name.includes("_test.") ||
+							name.includes(".freezed.") ||
+							name.includes(".g.") ||
+							name.includes(".generated.") ||
+							(ext && f.endsWith(ext))
+						);
+					})
+					.slice(0, 5);
+				if (related.length > 0) {
+					for (const rf of related) {
+						if (!foundFiles.includes(rf)) foundFiles.push(rf);
+					}
+					siblingHint = ` Siblings: ${related.map((f: string) => `\`${f}\``).join(", ")}.`;
+				}
+			}
+		} catch {}
+		pendingMessages.push({
+			role: "user",
+			content: [
+				{
+					type: "text",
+					text: `\`${targetPath}\` updated successfully.${breadthHint}${siblingHint}`,
+				},
+			],
+			timestamp: Date.now(),
+		});
+		if (firstMutation && !multiFileHintSent && (foundFiles.length >= 4 || pathsAlreadyRead.size >= 4)) {
+			multiFileHintSent = true;
+			pendingMessages.push({
+				role: "user",
+				content: [
+					{
+						type: "text",
+						text: "You touched several candidate paths. If any acceptance criterion still maps to a file you have not edited, continue there before stopping — ties favor complete coverage.",
+					},
+				],
+				timestamp: Date.now(),
+			});
+		}
+	};
 
-                // Inner loop: process tool calls and steering messages
-                while (hasMoreToolCalls || pendingMessages.length > 0) {
-                        if (!firstTurn) {
-                                await emit({ type: "turn_start" });
-                        } else {
-                                firstTurn = false;
-                        }
+	// Outer loop: continues when queued follow-up messages arrive after agent would stop
+	// Optional git hint (from v701): merge paths that differ vs a base ref into expected targets.
+	// Unlike v701, we do not delete paths — only broaden coverage for nudges.
+	try {
+		const { spawnSync: _gSpawn } = await import("node:child_process");
+		const _cwd = process.cwd();
+		const _git = (args: string[]) => {
+			try {
+				const r = _gSpawn("git", args, { cwd: _cwd, timeout: 3000, encoding: "utf-8" });
+				return r.status === 0 ? (r.stdout || "").trim() : "";
+			} catch {
+				return "";
+			}
+		};
+		const _head = _git(["rev-parse", "HEAD"]);
+		const _refs = _git(["for-each-ref", "--format=%(objectname)%09%(refname)"]);
+		if (_head && _refs) {
+			let _refSha = "";
+			for (const _line of _refs.split("\n")) {
+				const [_sha, _name] = _line.split("\t");
+				if (_sha && _sha !== _head && _name && (_name.includes("/main") || _name.includes("/master"))) {
+					_refSha = _sha;
+					break;
+				}
+			}
+			if (!_refSha) {
+				for (const _line of _refs.split("\n")) {
+					const [_sha, _name] = _line.split("\t");
+					if (_sha && _sha !== _head && _name) {
+						_refSha = _sha;
+						break;
+					}
+				}
+			}
+			if (_refSha) {
+				const _dt = _git(["diff-tree", "--raw", "--no-renames", "-r", _head, _refSha]);
+				const _rf: string[] = [];
+				for (const _dl of _dt.split("\n")) {
+					const _dm = _dl.match(/^:\d+ \d+ [0-9a-f]+ [0-9a-f]+ ([AMD])\t(.+)$/);
+					if (!_dm) continue;
+					if (_dm[1] === "A" || _dm[1] === "M") _rf.push(_dm[2]);
+				}
+				if (_rf.length > 0 && _rf.length <= 20) {
+					const _norm = (s: string) => s.replace(/^\.\//, "");
+					let toMerge = _rf;
+					if (expectedFiles.length > 0) {
+						toMerge = _rf.filter((p) => {
+							const np = _norm(p);
+							return expectedFiles.some((e) => {
+								const ne = _norm(e);
+								return np === ne || np.endsWith("/" + ne) || ne.endsWith("/" + np);
+							});
+						});
+					}
+					if (toMerge.length > 0) {
+						const merged = new Set([...foundFiles, ...toMerge, ...expectedFiles]);
+						foundFiles = [...merged];
+						expectedFiles = [...merged];
+						workPhase = "absorb";
+					}
+				}
+			}
+		}
+	} catch {
+		/* not a git repo or git unavailable */
+	}
 
-                        // Process pending messages (inject before next assistant response)
-                        if (pendingMessages.length > 0) {
-                                for (const message of pendingMessages) {
-                                        await emit({ type: "message_start", message });
-                                        await emit({ type: "message_end", message });
-                                        currentContext.messages.push(message);
-                                        newMessages.push(message);
-                                }
-                                pendingMessages = [];
-                        }
+	while (true) {
+		let hasMoreToolCalls = true;
 
-                        // Stream assistant response
-                        const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
-                        newMessages.push(message);
+		// Inner loop: process tool calls and steering messages
+		while (hasMoreToolCalls || pendingMessages.length > 0) {
+			if (!firstTurn) {
+				await emit({ type: "turn_start" });
+			} else {
+				firstTurn = false;
+			}
 
-                        if (message.stopReason === "aborted") {
-                                await emit({ type: "turn_end", message, toolResults: [] });
-                                await emit({ type: "agent_end", messages: newMessages });
-                                return;
-                        }
+			// Process pending messages (inject before next assistant response)
+			if (pendingMessages.length > 0) {
+				for (const message of pendingMessages) {
+					await emit({ type: "message_start", message });
+					await emit({ type: "message_end", message });
+					currentContext.messages.push(message);
+					newMessages.push(message);
+				}
+				pendingMessages = [];
+			}
 
-                        // G1: Provider error → inject continuation and retry (v15.1)
-                        if (message.stopReason === "error") {
-                                if (providerErrorRetries < MAX_PROVIDER_ERROR_RETRIES) {
-                                        providerErrorRetries++;
-                                        await emit({ type: "turn_end", message, toolResults: [] });
-                                        pendingMessages.push({
-                                                role: "user",
-                                                content: [
-                                                        {
-                                                                type: "text",
-                                                                text: "Your previous response was cut off by a provider error. Continue immediately with a tool call — do not write narrative text, call read or edit directly. The harness scores your diff from disk; an empty diff loses the round.",
-                                                        },
-                                                ],
-                                                timestamp: Date.now(),
-                                        });
-                                        hasMoreToolCalls = false;
-                                        continue;
-                                }
-                                await emit({ type: "turn_end", message, toolResults: [] });
-                                await emit({ type: "agent_end", messages: newMessages });
-                                return;
-                        }
+			// Stream assistant response
+			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+			newMessages.push(message);
 
-                        // Check for tool calls
-                        const toolCalls = message.content.filter((c) => c.type === "toolCall");
-                        hasMoreToolCalls = toolCalls.length > 0;
+			if (message.stopReason === "aborted") {
+				await emit({ type: "turn_end", message, toolResults: [] });
+				await emit({ type: "agent_end", messages: newMessages });
+				return;
+			}
 
-                        // G3: Token-length / premature stop retry (v16)
-                        if (!hasMoreToolCalls && noToolCallRetries < MAX_NO_TOOL_RETRIES) {
-                                const isLength = message.stopReason === "length";
-                                const isStopNoEdit = message.stopReason === "stop" && !hasEditedAnyFile;
-                                if (isLength || isStopNoEdit) {
-                                        noToolCallRetries++;
-                                        await emit({ type: "turn_end", message, toolResults: [] });
-                                        pendingMessages.push({
-                                                role: "user",
-                                                content: [
-                                                        {
-                                                                type: "text",
-                                                                text: isLength
-                                                                        ? "You hit the token limit without making any tool call. Do NOT write text. Call `read` or `edit` directly. One read + one edit = minimum unit of work."
-                                                                        : "You stopped without editing any file. An empty diff loses. Call `read` on the most likely target file, then `edit` it. Do it now.",
-                                                        },
-                                                ],
-                                                timestamp: Date.now(),
-                                        });
-                                        continue;
-                                }
-                        }
+			if (message.stopReason === "error") {
+				if (upstreamRetries < UPSTREAM_RETRY_LIMIT) {
+					upstreamRetries++;
+					await emit({ type: "turn_end", message, toolResults: [] });
+					pendingMessages.push({
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: "Transient upstream failure occurred. Resume by calling a tool directly — avoid prose. Only file diffs count toward your evaluation score.",
+							},
+						],
+						timestamp: Date.now(),
+					});
+					hasMoreToolCalls = false;
+					continue;
+				}
+				await emit({ type: "turn_end", message, toolResults: [] });
+				await emit({ type: "agent_end", messages: newMessages });
+				return;
+			}
 
-                        // G7: Anti-narration — if model keeps writing text without tools
-                        // after already having edited something, push it to stop or edit more.
-                        if (!hasMoreToolCalls && hasEditedAnyFile) {
-                                consecutiveTextOnlyTurns++;
-                                if (consecutiveTextOnlyTurns >= MAX_TEXT_ONLY_TURNS_AFTER_EDIT && pendingMessages.length === 0) {
-                                        pendingMessages.push({
-                                                role: "user",
-                                                content: [
-                                                        {
-                                                                type: "text",
-                                                                text: "Stop writing text. Either make another `edit` call or stop. Your diff is read from disk — narrative text is wasted tokens that could time out the run.",
-                                                        },
-                                                ],
-                                                timestamp: Date.now(),
-                                        });
-                                        consecutiveTextOnlyTurns = 0;
-                                }
-                        } else if (hasMoreToolCalls) {
-                                consecutiveTextOnlyTurns = 0;
-                        }
+			const toolCalls = message.content.filter((c) => c.type === "toolCall");
+			// Gemini sometimes hallucinates "EditEdits" or "editEdits" instead of "edit"
+			for (const tc of toolCalls) {
+				if (tc.name === "EditEdits" || tc.name === "editEdits") {
+					(tc as { name: string }).name = "edit";
+				}
+			}
+			hasMoreToolCalls = toolCalls.length > 0;
 
-                        const toolResults: ToolResultMessage[] = [];
-                        if (hasMoreToolCalls) {
-                                toolResults.push(...(await executeToolCalls(currentContext, message, config, signal, emit)));
+			if (!hasMoreToolCalls && emptyTurnRetries < EMPTY_TURN_MAX) {
+				const tokenCapped = message.stopReason === "length";
+				const idleStopped = message.stopReason === "stop" && !hasProducedEdit;
+				if (tokenCapped || idleStopped) {
+					emptyTurnRetries++;
+					await emit({ type: "turn_end", message, toolResults: [] });
+					pendingMessages.push({
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: tokenCapped
+									? "Output budget consumed without any tool invocation. Invoke \`read\`, \`edit\`, or \`write\` now. Text output contributes nothing to your score."
+									: "No file modifications detected. A blank diff receives zero points. Use \`read\` on the primary file, then \`edit\` or \`write\` it immediately.",
+							},
+						],
+						timestamp: Date.now(),
+					});
+					continue;
+				}
+			}
 
-                                for (const result of toolResults) {
-                                        currentContext.messages.push(result);
-                                        newMessages.push(result);
-                                }
+			// ZERO-DIFF PREVENTION: model wants to stop but has no edits at all
+			if (!hasMoreToolCalls && !hasProducedEdit && emptyTurnRetries >= EMPTY_TURN_MAX && pathsAlreadyRead.size > 0) {
+				emptyTurnRetries = 0; // reset to allow more retries
+				const topFile = foundFiles[0] || [...pathsAlreadyRead][0] || "";
+				await emit({ type: "turn_end", message, toolResults: [] });
+				pendingMessages.push({
+					role: "user",
+					content: [{ type: "text", text: `You are about to finish with ZERO file changes. This guarantees a loss. You read \`${topFile}\`. Apply \`edit\` or \`write\` now — even a partial or imperfect change scores more than nothing.` }],
+					timestamp: Date.now(),
+				});
+				hasMoreToolCalls = false;
+				continue;
+			}
 
-                                // G2: Track consecutive edit failures per file (v15.2)
-                                for (let i = 0; i < toolResults.length; i++) {
-                                        const tr = toolResults[i];
-                                        const tc = toolCalls[i];
-                                        if (!tc || tc.type !== "toolCall") continue;
-                                        if (tc.name !== "edit") continue;
-                                        const targetPath = (tc.arguments as { path?: string } | undefined)?.path;
-                                        if (!targetPath || typeof targetPath !== "string") continue;
-                                        if (tr.isError) {
-                                                const next = (editErrorsByFile.get(targetPath) ?? 0) + 1;
-                                                editErrorsByFile.set(targetPath, next);
-                                                if (next >= EDIT_ERROR_THRESHOLD_PER_FILE && !stuckFilesAlerted.has(targetPath)) {
-                                                        stuckFilesAlerted.add(targetPath);
-                                                        pendingMessages.push({
-                                                                role: "user",
-                                                                content: [
-                                                                        {
-                                                                                type: "text",
-                                                                                text: `STOP editing \`${targetPath}\`. You have failed ${next} edit attempts on this file in a row, all with "Could not find oldText" errors. The model's mental copy of this file is wrong. Do ONE of the following NOW:\n\n1. Move on to a DIFFERENT file in the task — there are likely other files mentioned in the acceptance criteria you haven't touched yet.\n2. If you must keep editing this file, call \`read\` on it ONE MORE TIME to refresh your view, then make ONE small edit with a very short, unique oldText snippet (5-10 lines max). Do not paste large blocks.\n3. Never paste text you remember — only paste text you have JUST read in this session.\n\nDo not retry the failed edits. Move on.`,
-                                                                        },
-                                                                ],
-                                                                timestamp: Date.now(),
-                                                        });
-                                                }
-                                        } else {
-                                                // Successful edit resets error counter
-                                                editErrorsByFile.set(targetPath, 0);
-                                                hasEditedAnyFile = true;
-                                                readsWithoutEdit = 0;
+			// Forced coverage: model about to stop with edits but expected files still untouched
+			if (!hasMoreToolCalls && hasProducedEdit && coverageRetries < MAX_COVERAGE_RETRIES) {
+				const missing = missingExpectedFiles();
+				if (missing.length > 0) {
+					coverageRetries++;
+					await emit({ type: "turn_end", message, toolResults: [] });
+					const list = missing.slice(0, 5).map((f) => `\`${f}\``).join(", ");
+					pendingMessages.push({
+						role: "user",
+						content: [{ type: "text", text: `Before stopping: these discovered target files have NOT been edited yet: ${list}. Read each and decide if it needs a change. Missing a required file forfeits all matched lines for it.` }],
+						timestamp: Date.now(),
+					});
+					hasMoreToolCalls = false;
+					continue;
+				}
+			}
 
-                                                // G6: Selective stale-text warning (improvement over onel0ck)
-                                                // Only warn if the same file was edited in the PREVIOUS turn
-                                                // (indicating model is re-editing immediately, likely with stale oldText).
-                                                const lastEditTurn = recentlyEditedFiles.get(targetPath);
-                                                if (lastEditTurn !== undefined && (turnNumber - lastEditTurn) <= 1) {
-                                                        pendingMessages.push({
-                                                                role: "user",
-                                                                content: [
-                                                                        {
-                                                                                type: "text",
-                                                                                text: `\`${targetPath}\` was JUST modified. If you need to edit this file again, call \`read\` on it first. Do NOT use oldText from memory.`,
-                                                                        },
-                                                                ],
-                                                                timestamp: Date.now(),
-                                                        });
-                                                }
-                                                recentlyEditedFiles.set(targetPath, turnNumber);
-                                        }
-                                }
+			const toolResults: ToolResultMessage[] = [];
+			if (hasMoreToolCalls) {
+				toolResults.push(...(await executeToolCalls(currentContext, message, config, signal, emit)));
 
-                                // G3: Exploration budget — track reads without edits
-                                for (const tr of toolResults) {
-                                        if ((tr.toolName === "read" || tr.toolName === "bash") && !tr.isError) {
-                                                if (!hasEditedAnyFile) readsWithoutEdit++;
-                                        }
-                                }
-                                if (!hasEditedAnyFile && readsWithoutEdit >= MAX_READS_BEFORE_EDIT && pendingMessages.length === 0) {
-                                        pendingMessages.push({
-                                                role: "user",
-                                                content: [
-                                                        {
-                                                                type: "text",
-                                                                text: "You have read enough files. Call `edit` on the most likely target file NOW. Do not read more files. One imperfect edit beats an empty diff.",
-                                                        },
-                                                ],
-                                                timestamp: Date.now(),
-                                        });
-                                        readsWithoutEdit = 0;
-                                }
+				for (const result of toolResults) {
+					currentContext.messages.push(result);
+					newMessages.push(result);
+				}
 
-                                // G5: Hard exit before validator kills container (v17)
-                                if ((Date.now() - loopStartTime) >= HARD_EXIT_MS) {
-                                        await emit({ type: "turn_end", message, toolResults });
-                                        await emit({ type: "agent_end", messages: newMessages });
-                                        return;
-                                }
+				for (let i = 0; i < toolResults.length; i++) {
+					const tr = toolResults[i];
+					const tc = toolCalls[i];
+					if (!tc || tc.type !== "toolCall") continue;
 
-                                // G4: Time pressure — urgency at 80s (v17)
-                                if (!hasEditedAnyFile && !timeWarningInjected && (Date.now() - loopStartTime) >= TIME_WARNING_MS && pendingMessages.length === 0) {
-                                        timeWarningInjected = true;
-                                        pendingMessages.push({
-                                                role: "user",
-                                                content: [
-                                                        {
-                                                                type: "text",
-                                                                text: "TIME WARNING: you have been running for over 80 seconds without producing an edit. The validator will kill this process soon. You MUST call `edit` or `write` on a file RIGHT NOW or you will score 0. Pick the single most obvious target file from the task and edit it immediately. Do not read any more files.",
-                                                        },
-                                                ],
-                                                timestamp: Date.now(),
-                                        });
-                                }
-                        }
+					if (tc.name === "write") {
+						const targetPath = (tc.arguments as { path?: string } | undefined)?.path;
+						if (!targetPath || typeof targetPath !== "string") continue;
+						if (tr.isError) {
+							if (pendingMessages.length === 0) {
+								pendingMessages.push({
+									role: "user",
+									content: [
+										{
+											type: "text",
+											text: `Write failed for \`${targetPath}\`. Check path and arguments; retry with \`write\` or switch to \`edit\` on an existing file.`,
+										},
+									],
+									timestamp: Date.now(),
+								});
+							}
+							continue;
+						}
+						await recordSuccessfulFileMutation(targetPath);
+						continue;
+					}
 
-                        await emit({ type: "turn_end", message, toolResults });
+					if (tc.name !== "edit") continue;
+					const targetPath = (tc.arguments as { path?: string } | undefined)?.path;
+					if (!targetPath || typeof targetPath !== "string") continue;
+					if (tr.isError) {
+						const count = (editFailMap.get(targetPath) ?? 0) + 1;
+						editFailMap.set(targetPath, count);
+						const anchorText = (tc.arguments as any)?.old_string ?? (tc.arguments as any)?.oldText ?? "";
+						const errText = tr.content?.map((c: any) => c.text ?? "").join("") ?? "";
+						const prevAnchor = priorFailedAnchor.get(targetPath);
 
-                        pendingMessages = (await config.getSteeringMessages?.()) || [];
-                }
+						if (errText.includes("2 occurrences") || errText.includes("3 occurrences")) {
+							pendingMessages.push({ role: "user", content: [{ type: "text", text: `Edit failed: oldText matches multiple locations in \`${targetPath}\`. Add more surrounding lines to your oldText to make it unique. Use \`read\` to see the exact context.` }], timestamp: Date.now() });
+						} else if (errText.includes("must have required property") || errText.includes("Validation failed")) {
+							pendingMessages.push({ role: "user", content: [{ type: "text", text: `Edit schema error on \`${targetPath}\`. The edit tool requires: { "path": "file", "edits": [{ "oldText": "exact match", "newText": "replacement" }] }. Re-read the file and try again with correct format.` }], timestamp: Date.now() });
+						} else if (errText.includes("Could not find") && !pathsAlreadyRead.has(targetPath) && pendingMessages.length === 0) {
+							pendingMessages.push({ role: "user", content: [{ type: "text", text: `Edit failed on \`${targetPath}\` — your oldText doesn't match the file. Call \`read\` on \`${targetPath}\` first, then copy the exact text you want to replace.` }], timestamp: Date.now() });
+						} else if (anchorText && prevAnchor === anchorText && pendingMessages.length === 0) {
+							pendingMessages.push({ role: "user", content: [{ type: "text", text: `Identical oldText failed twice on \`${targetPath}\`. Use \`read\` to get fresh contents before retrying.` }], timestamp: Date.now() });
+						}
+						priorFailedAnchor.set(targetPath, anchorText);
+						if (count >= EDIT_FAIL_CEILING && !failNotified.has(targetPath)) {
+							failNotified.add(targetPath);
+							pendingMessages.push({
+								role: "user",
+								content: [
+									{
+										type: "text",
+										text: `Edit attempts on \`${targetPath}\` have failed ${count} times. Your cached view is stale. Options:\n\n1. Switch to another file from the acceptance criteria you have not edited yet.\n2. Call \`read\` on this file to refresh, then use a compact oldText anchor (under 5 lines).\n3. Only use text you have just read — never paste from memory.`,
+									},
+								],
+								timestamp: Date.now(),
+							});
+						}
+					} else {
+						await recordSuccessfulFileMutation(targetPath);
+					}
+				}
 
-                // Agent would stop here. Check for follow-up messages.
-                const followUpMessages = (await config.getFollowUpMessages?.()) || [];
-                if (followUpMessages.length > 0) {
-                        // Set as pending so inner loop processes them
-                        pendingMessages = followUpMessages;
-                        continue;
-                }
+				for (let bi = 0; bi < toolResults.length; bi++) {
+					const tr = toolResults[bi];
+					const tc = toolCalls[bi];
+					if (tr.toolName === "bash" && !tr.isError) {
+						const output = tr.content?.map((c: any) => c.text ?? "").join("") ?? "";
+						if (output.includes("ConnectionRefusedError") || output.includes("Connection refused") || output.includes("ECONNREFUSED")) {
+							pendingMessages.push({ role: "user", content: [{ type: "text", text: "No services available in this environment. Network installs and requests will fail. Proceed with \`read\`, \`edit\`, and \`write\` only — avoid \`npm install\` unless unavoidable." }], timestamp: Date.now() });
+							break;
+						}
+						const cmd =
+							tc && tc.type === "toolCall" && tc.name === "bash"
+								? String((tc.arguments as { command?: string })?.command ?? "")
+								: "";
+						const haystack = `${cmd}\n${output}`;
+						if (
+							/\bnpm\s+(?:i|install|ci)\b/i.test(haystack) ||
+							/\bpnpm\s+(?:i|install|add)\b/i.test(haystack) ||
+							/\byarn\s+(?:add|install)\b/i.test(haystack)
+						) {
+							pendingMessages.push({
+								role: "user",
+								content: [
+									{
+										type: "text",
+										text: "Package installs are slow and often blocked offline. Prefer \`edit\`/\`write\` using the repo's existing stack; skip new installs unless the task explicitly names a dependency.",
+									},
+								],
+								timestamp: Date.now(),
+							});
+							break;
+						}
+					}
+					if ((tr.toolName === "find" || tr.toolName === "grep") && tr.isError) {
+						const errText = tr.content?.map((c: any) => c.text ?? "").join("") ?? "";
+						if (errText.includes("fd is not available") || errText.includes("ripgrep") || errText.includes("not available")) {
+							const tcFind = toolCalls.find((c: any) => c.type === "toolCall" && c.name === tr.toolName);
+							if (tcFind) {
+								const args = tcFind.arguments as any;
+								let bashCmd = "";
+								if (tr.toolName === "find") {
+									const pattern = args?.pattern || args?.glob || "*";
+									const dir = args?.path || ".";
+									bashCmd = `find ${dir} -type f -name "${pattern}" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" | head -30`;
+								} else {
+									const pattern = args?.pattern || "";
+									const searchPath = args?.path || ".";
+									const glob = args?.glob ? `--include="${args.glob}"` : "";
+									bashCmd = `grep -rnl ${glob} --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist "${pattern}" ${searchPath} | head -20`;
+								}
+								pendingMessages.push({
+									role: "user",
+									content: [{ type: "text", text: `The ${tr.toolName} tool is unavailable. Use bash instead:\n\`\`\`\n${bashCmd}\n\`\`\`\nRun this with \`bash\` now.` }],
+									timestamp: Date.now(),
+								});
+							}
+						}
+					}
+				}
 
-                // No more messages, exit
-                break;
-        }
+				if (workPhase === "search") {
+					for (const tr of toolResults) {
+						if (tr.toolName === "bash" && !tr.isError) {
+							const output = tr.content?.map((c: any) => c.text ?? "").join("") ?? "";
+							const paths = output.split("\n").filter((l: string) => l.trim().match(/\.\w+$/)).map((l: string) => l.trim());
+							if (paths.length > 0) {
+								foundFiles = paths.slice(0, 20);
+								workPhase = "absorb";
+								pendingMessages.push({
+									role: "user",
+									content: [{ type: "text", text: `Located ${foundFiles.length} candidate files. Read each file you intend to modify before making any edit:\n${foundFiles.slice(0, 10).map((p: string) => `- ${p}`).join("\n")}` }],
+									timestamp: Date.now(),
+								});
+							}
+						}
+					}
+				} else if (workPhase === "absorb") {
+					for (const tr of toolResults) {
+						if (tr.toolName === "read" && !tr.isError) {
+							const tc2 = toolCalls.find((c: any) => c.type === "toolCall" && c.name === "read");
+							if (tc2) {
+								const path = (tc2.arguments as any)?.path ?? "";
+								if (path) absorbedFiles.add(path);
+							}
+						}
+						if ((tr.toolName === "edit" || tr.toolName === "write") && !tr.isError) {
+							workPhase = "apply";
+						}
+					}
+					const absorbLimit = Math.min(Math.max(3, foundFiles.length > 10 ? 6 : 3), 8);
+					if (absorbedFiles.size >= absorbLimit && workPhase === "absorb" && pendingMessages.length === 0) {
+						workPhase = "apply";
+						pendingMessages.push({
+							role: "user",
+							content: [{ type: "text", text: `${absorbedFiles.size} files absorbed. Begin changing the first target file now — invoke \`edit\` (existing files) or \`write\` (new files). Proceed through remaining files until every acceptance criterion is covered.` }],
+							timestamp: Date.now(),
+						});
+					}
+				}
 
-        await emit({ type: "agent_end", messages: newMessages });
+				for (let i = 0; i < toolResults.length; i++) {
+					const tr = toolResults[i];
+					const tc = toolCalls[i];
+					if ((tr.toolName === "read" || tr.toolName === "bash") && !tr.isError) {
+						if (!hasProducedEdit) {
+							explorationCount++;
+							totalExplorationSteps++;
+						}
+					}
+					if (tr.toolName === "read" && !tr.isError && tc && tc.type === "toolCall") {
+						const readPath = (tc.arguments as any)?.path;
+						if (readPath && typeof readPath === "string") {
+							pathsAlreadyRead.add(readPath);
+							pathReadCounts.set(readPath, (pathReadCounts.get(readPath) ?? 0) + 1);
+						}
+					}
+				}
+
+				const now = Date.now();
+				if (now - lastRereadNudgeAt >= 5_000 && pendingMessages.length === 0) {
+					for (const [rp, cnt] of pathReadCounts) {
+						if (cnt >= 3) {
+							lastRereadNudgeAt = now;
+							const normRp = rp.replace(/^\.\//, "");
+							const others = foundFiles.filter((f: string) => {
+								const normF = f.replace(/^\.\//, "");
+								return normF !== normRp && !editedPaths.has(f) && !editedPaths.has(normF) && !editedPaths.has("./" + normF);
+							});
+							pendingMessages.push({
+								role: "user",
+								content: [
+									{
+										type: "text",
+										text: `You have read \`${rp}\` ${cnt} times — stop re-reading it. ${others.length > 0 ? `Move to a file you have not edited yet: ${others.slice(0, 5).map((f: string) => `\`${f}\``).join(", ")}.` : "Apply \`edit\` or \`write\` on a different file or stop."}`,
+									},
+								],
+								timestamp: Date.now(),
+							});
+							break;
+						}
+					}
+				}
+
+				const dynamicExploreCeiling = Math.max(3, Math.min(foundFiles.length + 1, 6));
+				if (!hasProducedEdit && explorationCount >= dynamicExploreCeiling && pendingMessages.length === 0) {
+					pendingMessages.push({
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: `Context gathered (${explorationCount} reads/bashes). Apply your first file change (\`edit\` or \`write\`) to the highest-priority target now. A partial patch always outscores an empty diff.`,
+							},
+						],
+						timestamp: Date.now(),
+					});
+					explorationCount = 0;
+				}
+
+				if (
+					!hasProducedEdit &&
+					totalExplorationSteps >= 5 &&
+					pendingMessages.length === 0 &&
+					foundFiles.length > 0
+				) {
+					const primary = foundFiles[0].replace(/^\.\//, "");
+					pendingMessages.push({
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: `Discovery stall: ${totalExplorationSteps} read/bash steps with no \`edit\`/\`write\` yet. The top-ranked target is \`${primary}\` — \`read\` it if needed, then change it immediately. Do not run more broad directory listing.`,
+							},
+						],
+						timestamp: Date.now(),
+					});
+					totalExplorationSteps = 0;
+				}
+
+				// FORCE EDIT: if 45s+ with no edit and we have read files, demand edit NOW
+				if (!hasProducedEdit && pendingMessages.length === 0 && (Date.now() - loopStart) >= 45_000 && pathsAlreadyRead.size > 0) {
+					const topFile = foundFiles[0] || [...pathsAlreadyRead][0] || "";
+					if (topFile) {
+						pendingMessages.push({
+							role: "user",
+							content: [{
+								type: "text",
+								text: `CRITICAL: ${Math.round((Date.now() - loopStart)/1000)}s elapsed with ZERO successful file changes. An empty diff scores zero — you LOSE. You have read \`${topFile}\`. Call \`edit\` or \`write\` on it NOW with your best guess. Any landed change beats zero. Do NOT search more or run installs.`,
+							}],
+							timestamp: Date.now(),
+						});
+					}
+				}
+
+				if (!hasProducedEdit && pendingMessages.length === 0) {
+					const elapsed = Date.now() - loopStart;
+					const readList = pathsAlreadyRead.size > 0
+						? `Previously read: ${[...pathsAlreadyRead].slice(0, 5).join(", ")}. `
+						: "";
+					if (!earlyNudgeSent && elapsed >= EARLY_NUDGE_MS) {
+						earlyNudgeSent = true;
+						pendingMessages.push({
+							role: "user",
+							content: [
+								{
+									type: "text",
+									text: `${Math.round(elapsed/1000)}s elapsed without any successful file changes. An empty diff scores zero. ${readList}Apply \`edit\` or \`write\` to the most relevant path now. Even one correct change contributes to your score.`,
+								},
+							],
+							timestamp: Date.now(),
+						});
+					} else if (earlyNudgeSent && elapsed >= URGENT_NUDGE_MS && !urgentNudgeSent) {
+						urgentNudgeSent = true;
+						pendingMessages.push({
+							role: "user",
+							content: [
+								{
+									type: "text",
+									text: `${Math.round(elapsed/1000)}s in with zero file modifications. Time may be running out. ${readList}Make an edit immediately or accept a zero score.`,
+								},
+							],
+							timestamp: Date.now(),
+						});
+					}
+				}
+
+				if (hasProducedEdit && pendingMessages.length === 0) {
+					const elapsed = Date.now() - loopStart;
+					const uniqueEdited = new Set([...editedPaths].map(p => p.replace(/^\.\//, "")));
+					const uneditedFound = foundFiles.filter((f: string) => {
+						const nf = f.replace(/^\.\//, "");
+						return !uniqueEdited.has(nf);
+					});
+					if (uneditedFound.length > 0 && elapsed > 30_000 && uniqueEdited.size <= 2) {
+						pendingMessages.push({
+							role: "user",
+							content: [{
+								type: "text",
+								text: `30s+ elapsed and you have only edited ${uniqueEdited.size} file(s). ${uneditedFound.length} discovered target(s) remain: ${uneditedFound.slice(0, 8).map((f: string) => `\`${f}\``).join(", ")}. Read and edit each one before going back to files you already edited.`,
+							}],
+							timestamp: Date.now(),
+						});
+					}
+				}
+
+				if ((Date.now() - loopStart) >= GRACEFUL_EXIT_MS) {
+					await emit({ type: "turn_end", message, toolResults });
+					await emit({ type: "agent_end", messages: newMessages });
+					return;
+				}
+
+				if (
+					!hasProducedEdit &&
+					!finalNudgeSent &&
+					(Date.now() - loopStart) >= LATE_NUDGE_MS &&
+					pendingMessages.length === 0
+				) {
+					finalNudgeSent = true;
+					pendingMessages.push({
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: "Over 50s without successful file changes. Pick the clearest path from the task or keyword list and apply \`edit\` or \`write\` now — further discovery has diminishing returns.",
+							},
+						],
+						timestamp: Date.now(),
+					});
+				}
+			}
+
+			await emit({ type: "turn_end", message, toolResults });
+
+			pendingMessages = (await config.getSteeringMessages?.()) || [];
+		}
+
+		// Agent would stop here. Check for follow-up messages.
+		const followUpMessages = (await config.getFollowUpMessages?.()) || [];
+		if (followUpMessages.length > 0) {
+			pendingMessages = followUpMessages;
+			continue;
+		}
+
+		// Review pass: if finished quickly and edits were made, check for missed files
+		const reviewElapsed = Date.now() - loopStart;
+		if (!reviewPassDone && hasProducedEdit && reviewElapsed < 60_000) {
+			reviewPassDone = true;
+			workPhase = "search";
+			const uneditedTargets = foundFiles.filter(
+				(f: string) => {
+					const nf = f.replace(/^\.\//, "");
+					return !editedPaths.has(f) && !editedPaths.has(nf) && !editedPaths.has("./" + nf);
+				}
+			);
+			const hint = uneditedTargets.length > 0
+				? `Unedited discovered files: ${uneditedTargets.slice(0, 5).map((f: string) => `\`${f}\``).join(", ")}. Read and edit them.`
+				: `Re-read the task acceptance criteria. If the task listed exact old strings or labels, grep the repo for any that remain. Are there files or criteria you missed? If yes, discover and edit them. If all criteria are covered, reply "done".`;
+			pendingMessages = [{
+				role: "user",
+				content: [{ type: "text", text: `REVIEW: You edited ${editedPaths.size} file(s): ${[...editedPaths].slice(0, 8).join(", ")}. ${hint}` }],
+				timestamp: Date.now(),
+			}];
+			continue;
+		}
+
+		// No more messages, exit
+		break;
+	}
+
+	await emit({ type: "agent_end", messages: newMessages });
 }
 
 /**
@@ -444,396 +918,396 @@ async function runLoop(
  * This is where AgentMessage[] gets transformed to Message[] for the LLM.
  */
 async function streamAssistantResponse(
-        context: AgentContext,
-        config: AgentLoopConfig,
-        signal: AbortSignal | undefined,
-        emit: AgentEventSink,
-        streamFn?: StreamFn,
+	context: AgentContext,
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
+	streamFn?: StreamFn,
 ): Promise<AssistantMessage> {
-        // Apply context transform if configured (AgentMessage[] → AgentMessage[])
-        let messages = context.messages;
-        if (config.transformContext) {
-                messages = await config.transformContext(messages, signal);
-        }
+	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
+	let messages = context.messages;
+	if (config.transformContext) {
+		messages = await config.transformContext(messages, signal);
+	}
 
-        // Convert to LLM-compatible messages (AgentMessage[] → Message[])
-        const llmMessages = await config.convertToLlm(messages);
+	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
+	const llmMessages = await config.convertToLlm(messages);
 
-        // Build LLM context
-        const llmContext: Context = {
-                systemPrompt: context.systemPrompt,
-                messages: llmMessages,
-                tools: context.tools,
-        };
+	// Build LLM context
+	const llmContext: Context = {
+		systemPrompt: context.systemPrompt,
+		messages: llmMessages,
+		tools: context.tools,
+	};
 
-        const streamFunction = streamFn || streamSimple;
+	const streamFunction = streamFn || streamSimple;
 
-        // Resolve API key (important for expiring tokens)
-        const resolvedApiKey =
-                (config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
+	// Resolve API key (important for expiring tokens)
+	const resolvedApiKey =
+		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 
-        const response = await streamFunction(config.model, llmContext, {
-                ...config,
-                apiKey: resolvedApiKey,
-                signal,
-        });
+	const response = await streamFunction(config.model, llmContext, {
+		...config,
+		apiKey: resolvedApiKey,
+		signal,
+	});
 
-        let partialMessage: AssistantMessage | null = null;
-        let addedPartial = false;
+	let partialMessage: AssistantMessage | null = null;
+	let addedPartial = false;
 
-        for await (const event of response) {
-                switch (event.type) {
-                        case "start":
-                                partialMessage = event.partial;
-                                context.messages.push(partialMessage);
-                                addedPartial = true;
-                                await emit({ type: "message_start", message: { ...partialMessage } });
-                                break;
+	for await (const event of response) {
+		switch (event.type) {
+			case "start":
+				partialMessage = event.partial;
+				context.messages.push(partialMessage);
+				addedPartial = true;
+				await emit({ type: "message_start", message: { ...partialMessage } });
+				break;
 
-                        case "text_start":
-                        case "text_delta":
-                        case "text_end":
-                        case "thinking_start":
-                        case "thinking_delta":
-                        case "thinking_end":
-                        case "toolcall_start":
-                        case "toolcall_delta":
-                        case "toolcall_end":
-                                if (partialMessage) {
-                                        partialMessage = event.partial;
-                                        context.messages[context.messages.length - 1] = partialMessage;
-                                        await emit({
-                                                type: "message_update",
-                                                assistantMessageEvent: event,
-                                                message: { ...partialMessage },
-                                        });
-                                }
-                                break;
+			case "text_start":
+			case "text_delta":
+			case "text_end":
+			case "thinking_start":
+			case "thinking_delta":
+			case "thinking_end":
+			case "toolcall_start":
+			case "toolcall_delta":
+			case "toolcall_end":
+				if (partialMessage) {
+					partialMessage = event.partial;
+					context.messages[context.messages.length - 1] = partialMessage;
+					await emit({
+						type: "message_update",
+						assistantMessageEvent: event,
+						message: { ...partialMessage },
+					});
+				}
+				break;
 
-                        case "done":
-                        case "error": {
-                                const finalMessage = await response.result();
-                                if (addedPartial) {
-                                        context.messages[context.messages.length - 1] = finalMessage;
-                                } else {
-                                        context.messages.push(finalMessage);
-                                }
-                                if (!addedPartial) {
-                                        await emit({ type: "message_start", message: { ...finalMessage } });
-                                }
-                                await emit({ type: "message_end", message: finalMessage });
-                                return finalMessage;
-                        }
-                }
-        }
+			case "done":
+			case "error": {
+				const finalMessage = await response.result();
+				if (addedPartial) {
+					context.messages[context.messages.length - 1] = finalMessage;
+				} else {
+					context.messages.push(finalMessage);
+				}
+				if (!addedPartial) {
+					await emit({ type: "message_start", message: { ...finalMessage } });
+				}
+				await emit({ type: "message_end", message: finalMessage });
+				return finalMessage;
+			}
+		}
+	}
 
-        const finalMessage = await response.result();
-        if (addedPartial) {
-                context.messages[context.messages.length - 1] = finalMessage;
-        } else {
-                context.messages.push(finalMessage);
-                await emit({ type: "message_start", message: { ...finalMessage } });
-        }
-        await emit({ type: "message_end", message: finalMessage });
-        return finalMessage;
+	const finalMessage = await response.result();
+	if (addedPartial) {
+		context.messages[context.messages.length - 1] = finalMessage;
+	} else {
+		context.messages.push(finalMessage);
+		await emit({ type: "message_start", message: { ...finalMessage } });
+	}
+	await emit({ type: "message_end", message: finalMessage });
+	return finalMessage;
 }
 
 /**
  * Execute tool calls from an assistant message.
  */
 async function executeToolCalls(
-        currentContext: AgentContext,
-        assistantMessage: AssistantMessage,
-        config: AgentLoopConfig,
-        signal: AbortSignal | undefined,
-        emit: AgentEventSink,
+	currentContext: AgentContext,
+	assistantMessage: AssistantMessage,
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
 ): Promise<ToolResultMessage[]> {
-        const toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall");
-        if (config.toolExecution === "sequential") {
-                return executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit);
-        }
-        return executeToolCallsParallel(currentContext, assistantMessage, toolCalls, config, signal, emit);
+	const toolCalls = assistantMessage.content.filter((c) => c.type === "toolCall");
+	if (config.toolExecution === "sequential") {
+		return executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit);
+	}
+	return executeToolCallsParallel(currentContext, assistantMessage, toolCalls, config, signal, emit);
 }
 
 async function executeToolCallsSequential(
-        currentContext: AgentContext,
-        assistantMessage: AssistantMessage,
-        toolCalls: AgentToolCall[],
-        config: AgentLoopConfig,
-        signal: AbortSignal | undefined,
-        emit: AgentEventSink,
+	currentContext: AgentContext,
+	assistantMessage: AssistantMessage,
+	toolCalls: AgentToolCall[],
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
 ): Promise<ToolResultMessage[]> {
-        const results: ToolResultMessage[] = [];
+	const results: ToolResultMessage[] = [];
 
-        for (const toolCall of toolCalls) {
-                await emit({
-                        type: "tool_execution_start",
-                        toolCallId: toolCall.id,
-                        toolName: toolCall.name,
-                        args: toolCall.arguments,
-                });
+	for (const toolCall of toolCalls) {
+		await emit({
+			type: "tool_execution_start",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			args: toolCall.arguments,
+		});
 
-                const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
-                if (preparation.kind === "immediate") {
-                        results.push(await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit));
-                } else {
-                        const executed = await executePreparedToolCall(preparation, signal, emit);
-                        results.push(
-                                await finalizeExecutedToolCall(
-                                        currentContext,
-                                        assistantMessage,
-                                        preparation,
-                                        executed,
-                                        config,
-                                        signal,
-                                        emit,
-                                ),
-                        );
-                }
-        }
+		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
+		if (preparation.kind === "immediate") {
+			results.push(await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit));
+		} else {
+			const executed = await executePreparedToolCall(preparation, signal, emit);
+			results.push(
+				await finalizeExecutedToolCall(
+					currentContext,
+					assistantMessage,
+					preparation,
+					executed,
+					config,
+					signal,
+					emit,
+				),
+			);
+		}
+	}
 
-        return results;
+	return results;
 }
 
 async function executeToolCallsParallel(
-        currentContext: AgentContext,
-        assistantMessage: AssistantMessage,
-        toolCalls: AgentToolCall[],
-        config: AgentLoopConfig,
-        signal: AbortSignal | undefined,
-        emit: AgentEventSink,
+	currentContext: AgentContext,
+	assistantMessage: AssistantMessage,
+	toolCalls: AgentToolCall[],
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
 ): Promise<ToolResultMessage[]> {
-        const results: ToolResultMessage[] = [];
-        const runnableCalls: PreparedToolCall[] = [];
+	const results: ToolResultMessage[] = [];
+	const runnableCalls: PreparedToolCall[] = [];
 
-        for (const toolCall of toolCalls) {
-                await emit({
-                        type: "tool_execution_start",
-                        toolCallId: toolCall.id,
-                        toolName: toolCall.name,
-                        args: toolCall.arguments,
-                });
+	for (const toolCall of toolCalls) {
+		await emit({
+			type: "tool_execution_start",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			args: toolCall.arguments,
+		});
 
-                const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
-                if (preparation.kind === "immediate") {
-                        results.push(await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit));
-                } else {
-                        runnableCalls.push(preparation);
-                }
-        }
+		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
+		if (preparation.kind === "immediate") {
+			results.push(await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit));
+		} else {
+			runnableCalls.push(preparation);
+		}
+	}
 
-        const runningCalls = runnableCalls.map((prepared) => ({
-                prepared,
-                execution: executePreparedToolCall(prepared, signal, emit),
-        }));
+	const runningCalls = runnableCalls.map((prepared) => ({
+		prepared,
+		execution: executePreparedToolCall(prepared, signal, emit),
+	}));
 
-        for (const running of runningCalls) {
-                const executed = await running.execution;
-                results.push(
-                        await finalizeExecutedToolCall(
-                                currentContext,
-                                assistantMessage,
-                                running.prepared,
-                                executed,
-                                config,
-                                signal,
-                                emit,
-                        ),
-                );
-        }
+	for (const running of runningCalls) {
+		const executed = await running.execution;
+		results.push(
+			await finalizeExecutedToolCall(
+				currentContext,
+				assistantMessage,
+				running.prepared,
+				executed,
+				config,
+				signal,
+				emit,
+			),
+		);
+	}
 
-        return results;
+	return results;
 }
 
 type PreparedToolCall = {
-        kind: "prepared";
-        toolCall: AgentToolCall;
-        tool: AgentTool<any>;
-        args: unknown;
+	kind: "prepared";
+	toolCall: AgentToolCall;
+	tool: AgentTool<any>;
+	args: unknown;
 };
 
 type ImmediateToolCallOutcome = {
-        kind: "immediate";
-        result: AgentToolResult<any>;
-        isError: boolean;
+	kind: "immediate";
+	result: AgentToolResult<any>;
+	isError: boolean;
 };
 
 type ExecutedToolCallOutcome = {
-        result: AgentToolResult<any>;
-        isError: boolean;
+	result: AgentToolResult<any>;
+	isError: boolean;
 };
 
 function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall): AgentToolCall {
-        if (!tool.prepareArguments) {
-                return toolCall;
-        }
-        const preparedArguments = tool.prepareArguments(toolCall.arguments);
-        if (preparedArguments === toolCall.arguments) {
-                return toolCall;
-        }
-        return {
-                ...toolCall,
-                arguments: preparedArguments as Record<string, any>,
-        };
+	if (!tool.prepareArguments) {
+		return toolCall;
+	}
+	const preparedArguments = tool.prepareArguments(toolCall.arguments);
+	if (preparedArguments === toolCall.arguments) {
+		return toolCall;
+	}
+	return {
+		...toolCall,
+		arguments: preparedArguments as Record<string, any>,
+	};
 }
 
 async function prepareToolCall(
-        currentContext: AgentContext,
-        assistantMessage: AssistantMessage,
-        toolCall: AgentToolCall,
-        config: AgentLoopConfig,
-        signal: AbortSignal | undefined,
+	currentContext: AgentContext,
+	assistantMessage: AssistantMessage,
+	toolCall: AgentToolCall,
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
-        const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
-        if (!tool) {
-                return {
-                        kind: "immediate",
-                        result: createErrorToolResult(`Tool ${toolCall.name} not found`),
-                        isError: true,
-                };
-        }
+	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
+	if (!tool) {
+		return {
+			kind: "immediate",
+			result: createErrorToolResult(`Tool ${toolCall.name} not found`),
+			isError: true,
+		};
+	}
 
-        try {
-                const preparedToolCall = prepareToolCallArguments(tool, toolCall);
-                const validatedArgs = validateToolArguments(tool, preparedToolCall);
-                if (config.beforeToolCall) {
-                        const beforeResult = await config.beforeToolCall(
-                                {
-                                        assistantMessage,
-                                        toolCall,
-                                        args: validatedArgs,
-                                        context: currentContext,
-                                },
-                                signal,
-                        );
-                        if (beforeResult?.block) {
-                                return {
-                                        kind: "immediate",
-                                        result: createErrorToolResult(beforeResult.reason || "Tool execution was blocked"),
-                                        isError: true,
-                                };
-                        }
-                }
-                return {
-                        kind: "prepared",
-                        toolCall,
-                        tool,
-                        args: validatedArgs,
-                };
-        } catch (error) {
-                return {
-                        kind: "immediate",
-                        result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
-                        isError: true,
-                };
-        }
+	try {
+		const preparedToolCall = prepareToolCallArguments(tool, toolCall);
+		const validatedArgs = validateToolArguments(tool, preparedToolCall);
+		if (config.beforeToolCall) {
+			const beforeResult = await config.beforeToolCall(
+				{
+					assistantMessage,
+					toolCall,
+					args: validatedArgs,
+					context: currentContext,
+				},
+				signal,
+			);
+			if (beforeResult?.block) {
+				return {
+					kind: "immediate",
+					result: createErrorToolResult(beforeResult.reason || "Tool execution was blocked"),
+					isError: true,
+				};
+			}
+		}
+		return {
+			kind: "prepared",
+			toolCall,
+			tool,
+			args: validatedArgs,
+		};
+	} catch (error) {
+		return {
+			kind: "immediate",
+			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+			isError: true,
+		};
+	}
 }
 
 async function executePreparedToolCall(
-        prepared: PreparedToolCall,
-        signal: AbortSignal | undefined,
-        emit: AgentEventSink,
+	prepared: PreparedToolCall,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
 ): Promise<ExecutedToolCallOutcome> {
-        const updateEvents: Promise<void>[] = [];
+	const updateEvents: Promise<void>[] = [];
 
-        try {
-                const result = await prepared.tool.execute(
-                        prepared.toolCall.id,
-                        prepared.args as never,
-                        signal,
-                        (partialResult) => {
-                                updateEvents.push(
-                                        Promise.resolve(
-                                                emit({
-                                                        type: "tool_execution_update",
-                                                        toolCallId: prepared.toolCall.id,
-                                                        toolName: prepared.toolCall.name,
-                                                        args: prepared.toolCall.arguments,
-                                                        partialResult,
-                                                }),
-                                        ),
-                                );
-                        },
-                );
-                await Promise.all(updateEvents);
-                return { result, isError: false };
-        } catch (error) {
-                await Promise.all(updateEvents);
-                return {
-                        result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
-                        isError: true,
-                };
-        }
+	try {
+		const result = await prepared.tool.execute(
+			prepared.toolCall.id,
+			prepared.args as never,
+			signal,
+			(partialResult) => {
+				updateEvents.push(
+					Promise.resolve(
+						emit({
+							type: "tool_execution_update",
+							toolCallId: prepared.toolCall.id,
+							toolName: prepared.toolCall.name,
+							args: prepared.toolCall.arguments,
+							partialResult,
+						}),
+					),
+				);
+			},
+		);
+		await Promise.all(updateEvents);
+		return { result, isError: false };
+	} catch (error) {
+		await Promise.all(updateEvents);
+		return {
+			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+			isError: true,
+		};
+	}
 }
 
 async function finalizeExecutedToolCall(
-        currentContext: AgentContext,
-        assistantMessage: AssistantMessage,
-        prepared: PreparedToolCall,
-        executed: ExecutedToolCallOutcome,
-        config: AgentLoopConfig,
-        signal: AbortSignal | undefined,
-        emit: AgentEventSink,
+	currentContext: AgentContext,
+	assistantMessage: AssistantMessage,
+	prepared: PreparedToolCall,
+	executed: ExecutedToolCallOutcome,
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
 ): Promise<ToolResultMessage> {
-        let result = executed.result;
-        let isError = executed.isError;
+	let result = executed.result;
+	let isError = executed.isError;
 
-        if (config.afterToolCall) {
-                const afterResult = await config.afterToolCall(
-                        {
-                                assistantMessage,
-                                toolCall: prepared.toolCall,
-                                args: prepared.args,
-                                result,
-                                isError,
-                                context: currentContext,
-                        },
-                        signal,
-                );
-                if (afterResult) {
-                        result = {
-                                content: afterResult.content ?? result.content,
-                                details: afterResult.details ?? result.details,
-                        };
-                        isError = afterResult.isError ?? isError;
-                }
-        }
+	if (config.afterToolCall) {
+		const afterResult = await config.afterToolCall(
+			{
+				assistantMessage,
+				toolCall: prepared.toolCall,
+				args: prepared.args,
+				result,
+				isError,
+				context: currentContext,
+			},
+			signal,
+		);
+		if (afterResult) {
+			result = {
+				content: afterResult.content ?? result.content,
+				details: afterResult.details ?? result.details,
+			};
+			isError = afterResult.isError ?? isError;
+		}
+	}
 
-        return await emitToolCallOutcome(prepared.toolCall, result, isError, emit);
+	return await emitToolCallOutcome(prepared.toolCall, result, isError, emit);
 }
 
 function createErrorToolResult(message: string): AgentToolResult<any> {
-        return {
-                content: [{ type: "text", text: message }],
-                details: {},
-        };
+	return {
+		content: [{ type: "text", text: message }],
+		details: {},
+	};
 }
 
 async function emitToolCallOutcome(
-        toolCall: AgentToolCall,
-        result: AgentToolResult<any>,
-        isError: boolean,
-        emit: AgentEventSink,
+	toolCall: AgentToolCall,
+	result: AgentToolResult<any>,
+	isError: boolean,
+	emit: AgentEventSink,
 ): Promise<ToolResultMessage> {
-        await emit({
-                type: "tool_execution_end",
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
-                result,
-                isError,
-        });
+	await emit({
+		type: "tool_execution_end",
+		toolCallId: toolCall.id,
+		toolName: toolCall.name,
+		result,
+		isError,
+	});
 
-        const toolResultMessage: ToolResultMessage = {
-                role: "toolResult",
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
-                content: result.content,
-                details: result.details,
-                isError,
-                timestamp: Date.now(),
-        };
+	const toolResultMessage: ToolResultMessage = {
+		role: "toolResult",
+		toolCallId: toolCall.id,
+		toolName: toolCall.name,
+		content: result.content,
+		details: result.details,
+		isError,
+		timestamp: Date.now(),
+	};
 
-        await emit({ type: "message_start", message: toolResultMessage });
-        await emit({ type: "message_end", message: toolResultMessage });
-        return toolResultMessage;
+	await emit({ type: "message_start", message: toolResultMessage });
+	await emit({ type: "message_end", message: toolResultMessage });
+	return toolResultMessage;
 }

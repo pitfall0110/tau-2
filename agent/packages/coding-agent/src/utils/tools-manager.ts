@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import { spawnSync } from "child_process";
 import extractZip from "extract-zip";
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "fs";
+import { chmodSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "fs";
 import { arch, platform } from "os";
 import { join } from "path";
 import { Readable } from "stream";
@@ -77,6 +77,58 @@ function commandExists(cmd: string): boolean {
 		return result.error === undefined || result.error === null;
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * Copy repo-bundled fd/rg into TOOLS_DIR (getAgentDir()/bin) if not already present.
+ * agent-beat ships static-pie Linux binaries at {repo-root}/bin/{fd,rg}. Inside the
+ * validator's docker container neither PATH nor TOOLS_DIR contains these, so without
+ * seeding the agent would fall through to ensureTool()'s GitHub download path (slow,
+ * and likely blocked by the proxy). Safe to call at every startup — it's a no-op
+ * once the target files exist.
+ */
+export function seedBundledBinaries(): void {
+	if (platform() === "win32") return;
+	try {
+		const scriptPath = process.argv[1];
+		if (!scriptPath) return;
+
+		// process.argv[1] is typically <repo>/packages/coding-agent/dist/cli.js in
+		// the built layout, but try a few depths to be robust.
+		const candidates: string[] = [
+			join(scriptPath, "..", "..", "..", "..", "bin"),
+			join(scriptPath, "..", "..", "..", "bin"),
+			join(scriptPath, "..", "..", "..", "..", "..", "bin"),
+		];
+
+		const names: Array<"fd" | "rg"> = ["fd", "rg"];
+		const missing = names.filter((name) => !existsSync(join(TOOLS_DIR, name)));
+		if (missing.length === 0) return;
+
+		let srcDir: string | null = null;
+		for (const candidate of candidates) {
+			if (missing.some((name) => existsSync(join(candidate, name)))) {
+				srcDir = candidate;
+				break;
+			}
+		}
+		if (!srcDir) return;
+
+		mkdirSync(TOOLS_DIR, { recursive: true });
+		for (const name of missing) {
+			const src = join(srcDir, name);
+			const dst = join(TOOLS_DIR, name);
+			if (!existsSync(src)) continue;
+			try {
+				copyFileSync(src, dst);
+				chmodSync(dst, 0o755);
+			} catch {
+				// non-fatal — target may be held or dir non-writable
+			}
+		}
+	} catch {
+		// non-fatal
 	}
 }
 

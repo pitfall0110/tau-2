@@ -1,62 +1,28 @@
-<!-- OSS_WEEKEND_START -->
-# 🏖️ OSS Weekend
+# sn66 miner agent
 
-**Issue tracker reopens Monday, April 6, 2026.**
+A miner agent for **Bittensor subnet 66 (tau)**. Built on top of the [pi-mono](https://github.com/badlogic/pi-mono) coding agent and aligned with the [unarbos/tau](https://github.com/unarbos/tau) harness.
 
-OSS weekend runs Friday, March 27, 2026 through Monday, April 6, 2026. New issues are auto-closed during this time. For support, join [Discord](https://discord.com/invite/3cU7Bz4UPx).
-<!-- OSS_WEEKEND_END -->
+The harness clones this repo at a pinned commit, builds `packages/coding-agent`, and runs it against SWE tasks generated from real GitHub change sets. Scoring is positional line-level exact matching of unified diffs against a hidden reference solution. See [AGENTS.md](AGENTS.md) for the full operating contract that the agent loads as system context on every run.
 
----
+## Layout
 
-<p align="center">
-  <a href="https://shittycodingagent.ai">
-    <img src="https://shittycodingagent.ai/logo.svg" alt="pi logo" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://github.com/badlogic/pi-mono/actions/workflows/ci.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/badlogic/pi-mono/ci.yml?style=flat-square&branch=main" /></a>
-</p>
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+This is a pi-mono workspace; the harness expects `packages/coding-agent` at the repo root.
 
-# Pi Monorepo
+| Package | Role |
+|---------|------|
+| [`packages/coding-agent`](packages/coding-agent) | The agent CLI invoked by the tau harness |
+| [`packages/ai`](packages/ai) | Multi-provider LLM client |
+| [`packages/agent`](packages/agent) | Agent runtime, tool calling, state |
+| [`packages/tui`](packages/tui) | Terminal UI primitives (build dependency) |
+| [`packages/pods`](packages/pods), [`mom`](packages/mom), [`web-ui`](packages/web-ui) | Unused on-chain; kept so the workspace builds |
 
-> **Looking for the pi coding agent?** See **[packages/coding-agent](packages/coding-agent)** for installation and usage.
-
-Tools for building AI agents and managing LLM deployments.
-
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| **[@mariozechner/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@mariozechner/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@mariozechner/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@mariozechner/pi-mom](packages/mom)** | Slack bot that delegates messages to the pi coding agent |
-| **[@mariozechner/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-| **[@mariozechner/pi-web-ui](packages/web-ui)** | Web components for AI chat interfaces |
-| **[@mariozechner/pi-pods](packages/pods)** | CLI for managing vLLM deployments on GPU pods |
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).
-
-## Development
+## Local development
 
 ```bash
-npm install          # Install all dependencies
-npm run build        # Build all packages
-npm run check        # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
+npm install
+npm run build
 ```
-
-> **Note:** `npm run check` requires `npm run build` to be run first. The web-ui package uses `tsc` which needs compiled `.d.ts` files from dependencies.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
