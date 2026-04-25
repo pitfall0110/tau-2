@@ -732,7 +732,7 @@ export async function main(args: string[]) {
 				childArgv: args,
 				selfPath: process.argv[1] ?? "",
 				origCwd: process.cwd(),
-				budgetMs: Number.parseInt(process.env.TAU_BON_BUDGET_MS ?? "", 10) || 260_000,
+				budgetMs: Number.parseInt(process.env.TAU_BON_BUDGET_MS ?? "", 10) || 270_000,
 			});
 			if (result.winnerStdout) {
 				process.stdout.write(result.winnerStdout);

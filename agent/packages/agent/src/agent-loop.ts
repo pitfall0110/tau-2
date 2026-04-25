@@ -255,7 +255,9 @@ async function runLoop(
 	const EARLY_NUDGE_MS = 10_000;
 	const URGENT_NUDGE_MS = 22_000;
 	const LATE_NUDGE_MS = 55_000;
-	const GRACEFUL_EXIT_MS = 170_000;
+	const GRACEFUL_EXIT_MS = 240_000;
+	const WRAPUP_NUDGE_MS = 200_000;
+	let wrapupNudgeSent = false;
 	let multiFileHintSent = false;
 	let reviewPassDone = false;
 
@@ -850,6 +852,33 @@ async function runLoop(
 					await emit({ type: "turn_end", message, toolResults });
 					await emit({ type: "agent_end", messages: newMessages });
 					return;
+				}
+
+				if (
+					hasProducedEdit &&
+					!wrapupNudgeSent &&
+					(Date.now() - loopStart) >= WRAPUP_NUDGE_MS &&
+					pendingMessages.length === 0
+				) {
+					wrapupNudgeSent = true;
+					const elapsedSec = Math.round((Date.now() - loopStart) / 1000);
+					const remaining = Math.round((GRACEFUL_EXIT_MS - (Date.now() - loopStart)) / 1000);
+					const uniqueEdited = new Set([...editedPaths].map(p => p.replace(/^\.\//, "")));
+					const uneditedFound = foundFiles.filter((f: string) => {
+						const nf = f.replace(/^\.\//, "");
+						return !uniqueEdited.has(nf);
+					});
+					const tail = uneditedFound.length > 0
+						? `${uneditedFound.length} discovered file(s) still unedited: ${uneditedFound.slice(0, 6).map((f: string) => `\`${f}\``).join(", ")}. Make minimal targeted edits to those, then stop.`
+						: "Stop discovery. Verify your edits compile/parse, fix any obvious issues, then stop.";
+					pendingMessages.push({
+						role: "user",
+						content: [{
+							type: "text",
+							text: `${elapsedSec}s elapsed, ~${remaining}s before exit. ${tail}`,
+						}],
+						timestamp: Date.now(),
+					});
 				}
 
 				if (
